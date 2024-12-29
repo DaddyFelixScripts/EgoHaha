@@ -1,0 +1,1542 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = " Ego.Haha | Whitelisted | Free ",
+   Icon = nil, -- Icon in Topbar. Can use Lucide Icons (string) or Roblox Image (number). 0 to use no icon (default).
+   LoadingTitle = "🍃 Ego.Haha 🍃",
+   LoadingSubtitle = "by Felix",
+   Theme = "Green", -- Check https://docs.sirius.menu/rayfield/configuration/themes
+
+   DisableRayfieldPrompts = false,
+   DisableBuildWarnings = false, -- Prevents Rayfield from warning when the script has a version mismatch with the interface
+
+   ConfigurationSaving = {
+      Enabled = false,
+      FolderName = nil, -- Create a custom folder for your hub/game
+      FileName = "Big Hub"
+   },
+
+   Discord = {
+      Enabled = true, -- Prompt the user to join your Discord server if their executor supports it
+      Invite = "6C78pbry2Q", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ABCD would be ABCD
+      RememberJoins = true -- Set this to false to make them join the discord every time they load it up
+   },
+
+   KeySystem = false, -- Set this to true to use our key system
+   KeySettings = {
+      Title = "Untitled",
+      Subtitle = "Key System",
+      Note = "No method of obtaining the key is provided", -- Use this to tell the user how to get a key
+      FileName = "Key", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
+      SaveKey = true, -- The user's key will be saved, but if you change the key, they will be unable to use your script
+      GrabKeyFromSite = false, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
+      Key = {"Hello"} -- List of keys that will be accepted by the system, can be RAW file links (pastebin, github etc) or simple strings ("hello","key22")
+   }
+})
+
+local MainTab = Window:CreateTab("🔫 Legit ", nil) -- Title, Image
+local MainSection = MainTab:CreateSection("Main")
+
+Rayfield:Notify({
+   Title = "Script executed!",
+   Content = "Have fun;)",
+   Duration = 4,
+   Image = nil,
+})
+
+local Button = MainTab:CreateButton({
+   Name = "Ego Cam",
+   Callback = function()
+         -- Services and variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local PredictionMultiplier = {Horizontal = 0.12, Vertical = 0.04} -- Prediction settings
+local BulletSpeed = 200 -- Bullet speed (adjust as per game mechanics)
+local Gravity = Vector3.new(0, -9.81, 0) -- Simulating gravity for the bullet's trajectory
+
+local targetPart = nil -- Current target
+local lockedTarget = nil -- Current locked target
+local lockRadius = 750 -- Distance limit for locking
+local wallCheckEnabled = true -- Ensure targets are not behind walls
+local toggleAim = false -- Controls the state of silent aim (false = off, true = on)
+local currentGun = nil -- Current equipped gun
+local autoReloadEnabled = true -- Enable auto reload feature
+
+-- Create a UI button to toggle silent aim
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game.CoreGui
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Parent = ScreenGui
+ToggleButton.Size = UDim2.new(0, 100, 0, 100) -- Set the size to make it a square (100x100)
+ToggleButton.Position = UDim2.new(0.5, -50, 0.9, -50) -- Positioned at the bottom-center of the screen
+ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Keep the button black
+ToggleButton.Text = "Ego OFF" -- Initially set to Ego OFF
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255) -- White text
+ToggleButton.TextSize = 20
+
+-- Make the button draggable
+local dragStart = nil
+local startPos = nil
+
+ToggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragStart = input.Position
+        startPos = ToggleButton.Position
+    end
+end)
+
+ToggleButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch and dragStart then
+        local delta = input.Position - dragStart
+        ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+ToggleButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        dragStart = nil
+    end
+end)
+
+-- Add UICorner to change the corner radius of the button
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12) -- Set corner radius to 12
+corner.Parent = ToggleButton
+
+-- Function to check if a target is visible (not behind walls)
+local function IsTargetVisible(targetPart)
+    if targetPart then
+        local origin = Camera.CFrame.Position
+        local direction = (targetPart.Position - origin).Unit * 1000
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+        if raycastResult and raycastResult.Instance then
+            return raycastResult.Instance:IsDescendantOf(targetPart.Parent)
+        end
+    end
+    return false
+end
+
+-- Function to find the nearest target to the crosshair
+local function FindNearestToCrosshair()
+    local ClosestDistance = math.huge
+    local ClosestPlayer = nil
+    local CenterPosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+            local Character = Player.Character
+            local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+            if HumanoidRootPart then
+                local ScreenPosition, IsVisible = Camera:WorldToViewportPoint(HumanoidRootPart.Position)
+                local WorldDistance = (Camera.CFrame.Position - HumanoidRootPart.Position).Magnitude
+                local Distance = (Vector2.new(ScreenPosition.X, ScreenPosition.Y) - CenterPosition).Magnitude
+
+                if IsVisible and WorldDistance <= lockRadius and Distance < ClosestDistance then
+                    if not wallCheckEnabled or IsTargetVisible(HumanoidRootPart) then
+                        ClosestDistance = Distance
+                        ClosestPlayer = HumanoidRootPart
+                    end
+                end
+            end
+        end
+    end
+
+    return ClosestPlayer
+end
+
+-- Function to predict the target's future position based on velocity
+local function PredictTargetPosition(target)
+    if target then
+        local velocity = target.Velocity
+        -- Predict the target's future position based on velocity and multiplier
+        -- Add horizontal (X, Z) and vertical (Y) components of velocity to prediction
+        local predictedPosition = target.Position + (velocity * PredictionMultiplier.Horizontal) + Vector3.new(0, velocity.Y * PredictionMultiplier.Vertical, 0)
+        return predictedPosition
+    end
+    return target.Position
+end
+
+-- Function to simulate bullet trajectory and return the hit position
+local function GetBulletHitPosition(startPos, endPos)
+    local direction = (endPos - startPos).unit
+    local distance = (endPos - startPos).magnitude
+
+    -- Simulating the bullet trajectory with gravity
+    local time = distance / BulletSpeed
+    local bulletPosition = startPos + (direction * BulletSpeed * time)
+
+    -- Apply gravity over the trajectory path
+    bulletPosition = bulletPosition + (Gravity * time^2 / 2) -- Simple gravity model
+    return bulletPosition
+end
+
+-- Function to handle auto-reload
+local function AutoReload()
+    if currentGun then
+        local magazine = currentGun:FindFirstChild("Ammo") -- Adjust if different for your game
+        if magazine and magazine.Value == 0 then
+            -- Trigger reload if ammo is 0
+            local reloadTime = 2 -- Reload time in seconds (you can adjust this)
+            print("Auto Reloading")
+            wait(reloadTime)
+            magazine.Value = 30 -- Adjust with your max ammo for the gun
+            print("Reload complete")
+        end
+    end
+end
+
+-- Function to handle the aiming logic
+RunService.RenderStepped:Connect(function()
+    if toggleAim then
+        -- If locked target exists, aim at it
+        if lockedTarget then
+            targetPart = lockedTarget
+            local predictedPosition = PredictTargetPosition(targetPart)
+            local hitPosition = GetBulletHitPosition(Camera.CFrame.Position, predictedPosition)
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, hitPosition)
+        end
+    end
+
+    -- Call auto-reload periodically
+    AutoReload()
+end)
+
+-- Toggle the silent aim when the button is pressed
+ToggleButton.MouseButton1Click:Connect(function()
+    if toggleAim then
+        -- Unlock current target
+        lockedTarget = nil
+        targetPart = nil
+        ToggleButton.Text = "Ego OFF" -- Change button text to "Ego OFF"
+        print("Silent Aim Unlocked")
+    else
+        -- Lock onto the nearest target
+        lockedTarget = FindNearestToCrosshair()
+
+        if lockedTarget then
+            -- Send notification for locking
+            game.StarterGui:SetCore("SendNotification", {
+                Title = "Ego.HAHA",
+                Text = "Locked target",
+                Duration = 3
+            })
+        end
+
+        ToggleButton.Text = "Ego ON" -- Change button text to "Ego ON"
+        print("Silent Aim Locked")
+    end
+    toggleAim = not toggleAim
+end)
+
+-- Notification to indicate the script has started
+game.StarterGui:SetCore("SendNotification", {
+    Title = "Ego.HAHA",
+    Text = "Loaded successfully",
+    Duration = 5
+})
+   end,
+})
+
+local Button = MainTab:CreateButton({
+   Name = "Silent Aim ",
+   Callback = function()
+         getgenv().Silent = {
+    Settings = {
+        Toggled = true,
+        AimPart = "UpperTorso",
+        HitChance = 9999,
+        Prediction = {
+            Toggled = true,
+            Value = 0.124231,
+            AutoPred = false,
+            JumpOffset = 0.08,
+            AntiGroundShots = true,
+            Resolve = false,
+        },
+        Circle = {
+            Visible = true,
+            Transparency = 0.5,
+            Thickness = 3,
+            NumSides = 100,
+            Radius = 75,
+            Filled = false,
+        },
+        RainbowTarget = true,
+        WallCheck = true,
+        AutoShoot = false,
+        BulletTp = false,
+        FriendCheck = false,
+    },
+}
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/hi999999-max/silent-aim/refs/heads/main/Better-Silent-Aim", true))()
+   end,
+})
+
+local Button = MainTab:CreateButton({
+   Name = "Silent With Triggerbot ",
+   Callback = function()
+        -- Services and variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+
+local PredictionMultiplier = {Horizontal = 0.12, Vertical = 0.04} -- Prediction settings
+local BulletSpeed = 200 -- Bullet speed (adjust as per game mechanics)
+local Gravity = Vector3.new(0, -9.81, 0) -- Simulating gravity for the bullet's trajectory
+
+local targetPart = nil -- Current target
+local lockedTarget = nil -- Current locked target
+local lockRadius = 750 -- Distance limit for locking
+local wallCheckEnabled = true -- Ensure targets are not behind walls
+local toggleAim = false -- Controls the state of silent aim (false = off, true = on)
+local currentGun = nil -- Current equipped gun
+local autoReloadEnabled = true -- Enable auto reload feature
+
+-- Add Silent Aim configuration
+getgenv().Silent = {
+    Settings = {
+        Toggled = true,  -- Silent aim is enabled immediately
+        AimPart = "UpperTorso",
+        HitChance = 9999,  -- 100% hit chance
+        Prediction = {
+            Toggled = true,
+            Value = 0.1344,  -- Improved prediction
+            AutoPred = false,
+            JumpOffset = 0.08,
+            AntiGroundShots = true,
+            Resolve = false,
+        },
+        Circle = {
+            Visible = true,
+            Transparency = 0.4,  -- Make the circle slightly more transparent
+            Thickness = 2,  -- Thin the circle for better visuals
+            NumSides = 100,
+            Radius = 80,  -- Increased radius for a bigger aim circle
+            Filled = false,
+        },
+        RainbowTarget = true,
+        WallCheck = true,
+        AutoShoot = true,  -- Automatically shoot when a target is locked
+        BulletTp = false,  -- Disabled Bullet TP
+        FriendCheck = false,
+    },
+}
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/hi999999-max/silent-aim/refs/heads/main/Better-Silent-Aim", true))()
+
+-- Function to check if a target is visible (not behind walls)
+local function IsTargetVisible(targetPart)
+    if targetPart then
+        local origin = Camera.CFrame.Position
+        local direction = (targetPart.Position - origin).Unit * 1000
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+        if raycastResult and raycastResult.Instance then
+            return raycastResult.Instance:IsDescendantOf(targetPart.Parent)
+        end
+    end
+    return false
+end
+
+-- Function to find the nearest target to the crosshair
+local function FindNearestToCrosshair()
+    local ClosestDistance = math.huge
+    local ClosestPlayer = nil
+    local CenterPosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+            local Character = Player.Character
+            local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+            if HumanoidRootPart then
+                local ScreenPosition, IsVisible = Camera:WorldToViewportPoint(HumanoidRootPart.Position)
+                local WorldDistance = (Camera.CFrame.Position - HumanoidRootPart.Position).Magnitude
+                local Distance = (Vector2.new(ScreenPosition.X, ScreenPosition.Y) - CenterPosition).Magnitude
+
+                if IsVisible and WorldDistance <= lockRadius and Distance < ClosestDistance then
+                    if not wallCheckEnabled or IsTargetVisible(HumanoidRootPart) then
+                        ClosestDistance = Distance
+                        ClosestPlayer = HumanoidRootPart
+                    end
+                end
+            end
+        end
+    end
+
+    return ClosestPlayer
+end
+
+-- Function to predict the target's future position based on velocity
+local function PredictTargetPosition(target)
+    if target then
+        local velocity = target.Velocity
+        -- Predict the target's future position based on velocity and multiplier
+        -- Add horizontal (X, Z) and vertical (Y) components of velocity to prediction
+        local predictedPosition = target.Position + (velocity * PredictionMultiplier.Horizontal) + Vector3.new(0, velocity.Y * PredictionMultiplier.Vertical, 0)
+        return predictedPosition
+    end
+    return target.Position
+end
+
+-- Function to handle auto-reload
+local function AutoReload()
+    if currentGun then
+        local magazine = currentGun:FindFirstChild("Ammo") -- Adjust if different for your game
+        if magazine and magazine.Value == 0 then
+            -- Trigger reload if ammo is 0
+            local reloadTime = 2 -- Reload time in seconds (you can adjust this)
+            print("Auto Reloading")
+            wait(reloadTime)
+            magazine.Value = 30 -- Adjust with your max ammo for the gun
+            print("Reload complete")
+        end
+    end
+end
+
+-- Function to handle the aiming logic
+RunService.RenderStepped:Connect(function()
+    if toggleAim then
+        -- If locked target exists, aim at it
+        if lockedTarget then
+            targetPart = lockedTarget
+            local predictedPosition = PredictTargetPosition(targetPart)
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPosition)
+        end
+    end
+
+    -- Call auto-reload periodically
+    AutoReload()
+end)
+
+-- No toggle button; silent aim is enabled automatically
+lockedTarget = FindNearestToCrosshair()
+if lockedTarget then
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "Silent Aim",
+        Text = "Locked onto target",
+        Duration = 3
+    })
+end
+
+-- Notification to indicate the script has started
+game.StarterGui:SetCore("SendNotification", {
+    Title = "Silent Aim",
+    Text = "Loaded and Activated",
+    Duration = 5
+})
+  end,
+})
+
+local Button = MainTab:CreateButton({
+   Name = "Ego Aimlock ",
+   Callback = function() 
+               
+Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/vKhonshu/intro2/main/ui2"))()
+local NotifyLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/vKhonshu/intro/main/ui"))()
+NotifyLib.prompt('If your using EgoAim', 'Your a good boyy', 5)
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:service("VirtualInputManager")
+
+local isTouchEnabled = UserInputService.TouchEnabled
+local isMouseEnabled = UserInputService.MouseEnabled
+local isKeyboardEnabled = UserInputService.KeyboardEnabled
+local isGamepadEnabled = UserInputService.GamepadEnabled
+
+if isTouchEnabled then
+    NotifyLib.prompt('Mobile Device Detected', 'Loading V Tool..', 5)
+    getgenv().keytoclick = "V"
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "EgoAim"
+    tool.Activated:connect(function()
+        VirtualInputManager:SendKeyEvent(true, keytoclick, false, game)
+    end)
+    tool.Parent = game:GetService("Players").LocalPlayer:WaitForChild("Backpack")
+    local player = game:GetService("Players").LocalPlayer
+    player.CharacterRemoving:Connect(function()
+        tool.Parent = player.Backpack
+    end)
+    NotifyLib.prompt('Mobile EgoAim ', 'EgoAimlock  Has Successfully Loaded!', 5)    
+elseif isMouseEnabled and isMouseEnabled then
+    NotifyLib.prompt('Pc Device Detected', 'Smite them with V!', 5)
+elseif isGamepadEnabled and isTouchEnabled then
+    NotifyLib.prompt('Controller And Mobile Device Detected', 'Loading V Tool..', 5)
+    getgenv().keytoclick = "V"
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "EgoAim"
+   tool.Activated:connect(function()
+        VirtualInputManager:SendKeyEvent(true, keytoclick, false, game)
+    end)
+    tool.Parent = game:GetService("Players").LocalPlayer:WaitForChild("Backpack")
+    local player = game:GetService("Players").LocalPlayer
+    player.CharacterRemoving:Connect(function()
+        tool.Parent = player.Backpack
+    end)
+    NotifyLib.prompt('Controller And Mobile V Tool', 'V Tool Has Successfully Loaded!', 5)
+elseif isMouseEnabled and isMouseEnabled and isTouchEnabled then
+    NotifyLib.prompt('Hybird Mobile Device Detected', 'Loading V Tool..', 5)
+    getgenv().keytoclick = "V"
+    local tool = Instance.new("Tool")
+    tool.RequiresHandle = false
+    tool.Name = "EgoAim"
+    tool.Activated:connect(function()
+        VirtualInputManager:SendKeyEvent(true, keytoclick, false, game)
+    end)
+    tool.Parent = game:GetService("Players").LocalPlayer:WaitForChild("Backpack")
+    local player = game:GetService("Players").LocalPlayer 
+    player.CharacterRemoving:Connect(function()
+        tool.Parent = player.Backpack
+    end)
+    NotifyLib.prompt('Ego tool', 'EgoAimlock  Has Successfully Loaded!', 5)
+end
+
+Settings = {   
+    rewrittenmain = {
+		Enabled = true,
+		Key = "v", -- change the key aint that hard -TheRealX_ORA	
+		DOT = true,
+		AIRSHOT = true,
+        NOTIF = true,			
+        AUTOPRED = true,			
+        FOV = math.huge, -- if you dont know what is math.huge let me tell you it is infinite? -TheRealX_ORA	
+    }
+}
+
+local SelectedPart = "HumanoidRootPart"
+local Prediction = true
+local PredictionValue = 0.135635
+
+local CC = game:GetService("Workspace").CurrentCamera
+local Plr;
+local enabled = false
+local accomidationfactor = 0.136
+local mouse = game.Players.LocalPlayer:GetMouse()
+local data = game.Players:GetPlayers()
+
+local placemarker = Instance.new("Part", game.Workspace)
+placemarker.Material = Enum.Material.ForceField
+placemarker.Reflectance = 0
+placemarker.Shape = Enum.PartType.Ball
+placemarker.TopSurface = Enum.SurfaceType.Smooth
+placemarker.BottomSurface = Enum.SurfaceType.Smooth
+placemarker.FrontSurface = Enum.SurfaceType.Smooth
+placemarker.BackSurface = Enum.SurfaceType.Smooth
+placemarker.LeftSurface = Enum.SurfaceType.Smooth
+placemarker.RightSurface = Enum.SurfaceType.Smooth
+        
+local hue = 0
+
+-- Update function to change the part's color over time
+RunService.Heartbeat:Connect(function(deltaTime)
+    hue = (hue + deltaTime * 0.1) % 1
+    local color = Color3.fromHSV(hue, 1, 1)
+    placemarker.Color = color
+end)
+
+function makemarker(Parent, Adornee, Color, Size, Size2)
+    local e = Instance.new("BillboardGui", Parent)
+    e.Name = "PP"			
+    e.Adornee = Adornee			
+    e.Size = UDim2.new(Size, Size2, Size, Size2)			
+    e.AlwaysOnTop = Settings.rewrittenmain.DOT
+    local a = Instance.new("Frame", e)			
+    if Settings.rewrittenmain.DOT == true then				
+        a.Size = UDim2.new(2, 0, 2, 0)
+    else
+		a.Size = UDim2.new(0, 0, 0, 0)
+	end
+	if Settings.rewrittenmain.DOT == true then
+        a.Transparency = 0				
+        a.BackgroundTransparency = 0
+	else
+		a.Transparency = 1
+		a.BackgroundTransparency = 1
+	end
+    a.BackgroundColor3 = Color
+    local hue = 0
+    RunService.Heartbeat:Connect(function(deltaTime)
+        hue = (hue + deltaTime * 0.1) % 1
+        local color = Color3.fromHSV(hue, 1, 1)
+        a.BackgroundColor3 = color
+    end)	
+    local g = Instance.new("UICorner", a) 
+		if Settings.rewrittenmain.DOT == false then
+			g.CornerRadius = UDim.new(0, 0)
+		else
+			g.CornerRadius = UDim.new(1, 1) 
+		end	
+    return(e)
+end
+
+function noob(player)
+    local character
+    repeat wait() until player.Character
+    local handler = makemarker(guimain, player.Character:WaitForChild(SelectedPart), Color3.fromRGB(0, 0, 0), 0.3, 3)
+    handler.Name = player.Name			
+    player.CharacterAdded:connect(function(Char) handler.Adornee = Char:WaitForChild(SelectedPart) end)
+			
+    spawn(function()			            
+        while wait() do      
+            if player.Character then
+            end
+		end
+	end)
+end
+
+for i = 1, #data do
+	if data[i] ~= game.Players.LocalPlayer then
+		noob(data[i])
+	end
+end
+
+game.Players.PlayerAdded:connect(function(Player)
+	noob(Player)
+end)
+
+spawn(function()
+	placemarker.Anchored = true
+	placemarker.CanCollide = false
+	
+    if Settings.rewrittenmain.DOT == true then
+        placemarker.Size = Vector3.new(8, 8, 8)
+    else
+		placemarker.Size = Vector3.new(0, 0, 0)
+	end
+        
+	placemarker.Transparency = 0.50
+			
+    if Settings.rewrittenmain.DOT then
+        makemarker(placemarker, placemarker, Color3.fromRGB(255, 0, 0), 0.40, 0)
+	end
+end)
+
+game.Players.LocalPlayer:GetMouse().KeyDown:Connect(function(k)
+    if k == Settings.rewrittenmain.Key and Settings.rewrittenmain.Enabled then
+        if enabled == true then
+            enabled = false
+
+            if Settings.rewrittenmain.NOTIF == true then
+                Plr = getClosestPlayerToCursor()
+                game.StarterGui:SetCore("SendNotification", {
+                    Title = "bruh why did you let him live",
+                    Text = "Spared: "..tostring(Plr.Character.Humanoid.DisplayName),
+                    Duration = 1.5
+                })
+            end
+        else
+            Plr = getClosestPlayerToCursor()
+            enabled = true
+            if Settings.rewrittenmain.NOTIF == true then
+                game.StarterGui:SetCore("SendNotification", {
+                    Title = "this nigga done for",
+                    Text = "Ego Victim: "..tostring(Plr.Character.Humanoid.DisplayName),
+                    Duration = 2.5
+                })
+            end
+        end
+    end
+end)
+
+function getClosestPlayerToCursor()
+	local closestPlayer
+    local shortestDistance = Settings.rewrittenmain.FOV
+	
+    for i, v in pairs(game.Players:GetPlayers()) do			
+        if v ~= game.Players.LocalPlayer and v.Character and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health ~= 0 and v.Character:FindFirstChild("HumanoidRootPart") then
+            
+            local pos = CC:WorldToViewportPoint(v.Character.PrimaryPart.Position)					
+            local magnitude = (Vector2.new(pos.X, pos.Y) - Vector2.new(mouse.X, mouse.Y)).magnitude	
+            
+            if magnitude < shortestDistance then						
+                closestPlayer = v						
+                shortestDistance = magnitude					
+            end				
+        end			
+    end			
+    return closestPlayer		
+end
+
+local lastNotificationTime = 0
+local pingvalue = nil;
+local split = nil;
+local ping = nil;
+
+local function generatePredictionValue(ping)
+    local baseValues = {
+        {maxPing = 10, base = 0.1},
+        {maxPing = 30, base = 0.11},
+        {maxPing = 50, base = 0.12},
+        {maxPing = 70, base = 0.13},
+        {maxPing = 90, base = 0.14},
+        {maxPing = 110, base = 0.15},
+        {maxPing = 130, base = 0.16},
+        {maxPing = 150, base = 0.17},
+        {maxPing = 170, base = 0.18},
+        {maxPing = 190, base = 0.19},
+        {maxPing = 210, base = 0.20},
+        {maxPing = 230, base = 0.21},
+        {maxPing = 250, base = 0.22},
+        -- Add more if needed
+    }
+
+    local predictionGenerator = 0.235
+    for _, range in ipairs(baseValues) do
+        if ping <= range.maxPing then
+            predictionGenerator = range.base
+            break
+        end
+    end
+
+    local numberOfDigits = math.random(12, 15)
+    predictionGenerator = tostring(predictionGenerator)
+    for _ = 1, numberOfDigits do
+        local randomDigit = tostring(math.random(0, 9))
+        predictionGenerator = predictionGenerator .. randomDigit
+    end
+
+    return predictionGenerator
+end
+
+local lastNotificationTime = 0
+game:GetService("RunService").Stepped:connect(function()
+    if enabled and Plr.Character ~= nil and Plr.Character:FindFirstChild("HumanoidRootPart") then
+        placemarker.CFrame = CFrame.new(Plr.Character.HumanoidRootPart.Position + (Plr.Character.HumanoidRootPart.Velocity * accomidationfactor))
+    else
+        placemarker.CFrame = CFrame.new(0, 9999, 0)
+    end
+    if Settings.rewrittenmain.AUTOPRED == true then
+        local pingvalue = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValueString()
+        local split = string.split(pingvalue, '(')
+        local ping = tonumber(split[1])
+
+        local predictionValue = generatePredictionValue(ping)
+    end
+end)
+
+local mt = getrawmetatable(game)
+local old = mt.__namecall
+		
+setreadonly(mt, false)		
+mt.__namecall = newcclosure(function(...)
+    local args = {...}
+    if enabled and getnamecallmethod() == "FireServer" and Settings.rewrittenmain.Enabled and Plr.Character ~= nil then            
+        if args[2] == "UpdateMousePos" then        
+            
+            if Prediction == true then            
+                if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                end
+                    
+			else
+                if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position
+                end
+			end  
+                
+        elseif args[2] == "MOUSE" then
+                
+            if Prediction == true then
+                if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                end
+                    
+			else
+				if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position
+                end            
+            end
+                
+        elseif args[2] == "MousePos" then
+            if Prediction == true then
+                if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position + (Plr.Character[SelectedPart].Velocity * PredictionValue)
+                end
+                    
+			else
+				if type(args[3]) == "table" then
+                    args[3] = {
+                        Plr.Character[SelectedPart].Position
+                        }
+                elseif type(args[3]) ~= "table" then
+                    args[3] = Plr.Character[SelectedPart].Position
+                end            
+            end
+        end	            
+        return old(unpack(args))			
+    end			     
+    return old(...)
+end)
+
+NotifyLib.prompt('Ego on Top!', 'Loaded EgoAimlock!', 5)
+   end,
+})
+
+local ESPTab = Window:CreateTab("👀ESP", nil) -- Title, Image
+local Section = ESPTab:CreateSection("Esp")
+
+local Button = ESPTab:CreateButton({
+   Name = "HealthBar ESP",
+   Callback = function()
+       local LocalPlayer = game.Players.LocalPlayer -- Reference to the local player
+
+-- Function to create highlight, name display, and health bar
+local function createHighlightAndName(player)
+    if player.Character and player ~= LocalPlayer then
+        local character = player.Character
+        local head = character:FindFirstChild("Head")
+        local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") -- Support for both R6 and R15
+        
+        if head and torso then
+            -- Create Highlight
+            local highlight = Instance.new("Highlight")
+            highlight.Adornee = character
+            highlight.FillColor = Color3.fromRGB(0, 255, 0) -- Green color
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- White outline
+            highlight.Parent = character
+
+            -- Create BillboardGui for name display
+            local billboardGui = Instance.new("BillboardGui")
+            billboardGui.Adornee = head
+            billboardGui.Size = UDim2.new(4, 0, 1, 0)
+            billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+            billboardGui.AlwaysOnTop = true
+            billboardGui.Parent = head
+
+            -- Add TextLabel to BillboardGui
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Size = UDim2.new(1, 0, 1, 0)
+            textLabel.BackgroundTransparency = 1
+            textLabel.Text = player.Name
+            textLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- White text
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.TextStrokeTransparency = 0
+            textLabel.TextScaled = true
+            textLabel.Parent = billboardGui
+
+            -- Add Health GUI
+            local healthBillboard, healthFrame
+            local function createVerticalHealthBar(target)
+                if healthBillboard then healthBillboard:Destroy() end
+                healthBillboard = Instance.new("BillboardGui")
+                healthBillboard.Size = UDim2.new(0.7, 0, 5, 0) -- Vertical health bar size
+                healthBillboard.ExtentsOffset = Vector3.new(1.5, 0, 0) -- Slightly farther from the torso
+                healthBillboard.Adornee = target
+                healthBillboard.AlwaysOnTop = true
+                healthBillboard.Parent = target
+
+                local healthFrame = Instance.new("Frame")
+                healthFrame.Size = UDim2.new(1, 0, 1, 0)
+                healthFrame.Position = UDim2.new(0, 0, 0, 0)
+                healthFrame.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+                healthFrame.BorderSizePixel = 0
+                healthFrame.Parent = healthBillboard
+
+                return healthBillboard, healthFrame
+            end
+
+            local function updateHealthBar(healthFrame, healthPercentage)
+                local healthColor
+                if healthPercentage >= 0.5 then
+                    healthColor = Color3.fromRGB(0, 255, 0) -- Green
+                elseif healthPercentage > 0 then
+                    healthColor = Color3.fromRGB(255, 255, 0) -- Yellow
+                else
+                    healthColor = Color3.fromRGB(255, 0, 0) -- Red
+                end
+                healthFrame.BackgroundColor3 = healthColor
+                healthFrame.Size = UDim2.new(1, 0, healthPercentage, 0)
+            end
+
+            -- For R6, attach the health bar to Torso
+            if character:FindFirstChild("Torso") then
+                healthBillboard, healthFrame = createVerticalHealthBar(character.Torso)
+            -- For R15, attach the health bar to UpperTorso
+            elseif character:FindFirstChild("UpperTorso") then
+                healthBillboard, healthFrame = createVerticalHealthBar(character.UpperTorso)
+            end
+
+            -- Update health bar when health changes
+            player.Character.Humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    local healthPercentage = humanoid.Health / humanoid.MaxHealth
+                    updateHealthBar(healthFrame, healthPercentage)
+                end
+            end)
+        end
+    end
+end
+
+-- Function to handle new players
+local function onPlayerAdded(player)
+    -- Handle new player character addition
+    player.CharacterAdded:Connect(function(character)
+        -- Ensure ESP is applied to the new player's character as soon as it's spawned
+        createHighlightAndName(player)
+    end)
+
+    -- If the player already has a character (for example, if they joined mid-game)
+    if player.Character then
+        createHighlightAndName(player)
+    end
+end
+
+-- Highlight all existing players (including those already in the game when the script starts)
+for _, player in ipairs(game.Players:GetPlayers()) do
+    -- Apply ESP to all existing players except the local player
+    if player ~= LocalPlayer then
+        onPlayerAdded(player)
+    end
+end
+
+-- Handle new players joining the game
+game.Players.PlayerAdded:Connect(function(player)
+    -- Ensure ESP is applied to new players when they join
+    if player ~= LocalPlayer then
+        onPlayerAdded(player)
+    end
+end)
+   end,
+})
+
+local Button = ESPTab:CreateButton({
+   Name = "GreenDot ESP [Toggleable] ",
+   Callback = function()
+        
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ESP toggle
+local ESPEnabled = false
+
+-- Table to store ESP dots
+local ESPDots = {}
+
+-- Function to create a new ESP dot
+local function createESP(player)
+    if player == LocalPlayer then return end -- Skip the local player
+
+    local dot = Drawing.new("Circle")
+    dot.Color = Color3.fromRGB(0, 255, 0) -- Green dot
+    dot.Radius = 5
+    dot.Filled = true
+    dot.Visible = false
+
+    local nameTag = Drawing.new("Text")
+    nameTag.Color = Color3.fromRGB(0, 255, 0) -- Green name
+    nameTag.Size = 14
+    nameTag.Center = true
+    nameTag.Outline = true
+    nameTag.Text = player.DisplayName
+    nameTag.Visible = false
+
+    ESPDots[player] = {Dot = dot, NameTag = nameTag}
+
+    player.CharacterAdded:Connect(function(character)
+        -- Hide ESP if the character dies
+        character:WaitForChild("Humanoid").Died:Connect(function()
+            dot.Visible = false
+            nameTag.Visible = false
+        end)
+    end)
+end
+
+-- Function to update ESP dots
+local function updateESP()
+    if not ESPEnabled then
+        for _, elements in pairs(ESPDots) do
+            elements.Dot.Visible = false
+            elements.NameTag.Visible = false
+        end
+        return
+    end
+
+    for player, elements in pairs(ESPDots) do
+        if player.Character then
+            local torso = player.Character:FindFirstChild("UpperTorso") or player.Character:FindFirstChild("Torso")
+            if torso then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(torso.Position)
+
+                if onScreen then
+                    elements.Dot.Position = Vector2.new(screenPos.X, screenPos.Y)
+                    elements.Dot.Visible = true
+
+                    elements.NameTag.Position = Vector2.new(screenPos.X, screenPos.Y - 20)
+                    elements.NameTag.Visible = true
+                else
+                    elements.Dot.Visible = false
+                    elements.NameTag.Visible = false
+                end
+            else
+                elements.Dot.Visible = false
+                elements.NameTag.Visible = false
+            end
+        else
+            elements.Dot.Visible = false
+            elements.NameTag.Visible = false
+        end
+    end
+end
+
+-- Add ESP for players already in the game
+for _, player in ipairs(Players:GetPlayers()) do
+    createESP(player)
+end
+
+-- Add ESP for new players
+Players.PlayerAdded:Connect(createESP)
+
+-- Remove ESP when players leave
+Players.PlayerRemoving:Connect(function(player)
+    if ESPDots[player] then
+        ESPDots[player].Dot:Remove()
+        ESPDots[player].NameTag:Remove()
+        ESPDots[player] = nil
+    end
+end)
+
+-- Update ESP dots every frame
+RunService.RenderStepped:Connect(updateESP)
+
+-- Create a toggle button
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game.CoreGui
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Parent = ScreenGui
+ToggleButton.Size = UDim2.new(0, 120, 0, 60) -- Slightly larger button size (width: 120px, height: 60px)
+ToggleButton.Position = UDim2.new(0.5, -60, 0.9, -30) -- Center button at bottom with updated size
+ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Black button
+ToggleButton.Text = "ESP OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255) -- White text
+ToggleButton.TextSize = 20
+
+-- Green outline on the upper length of the button
+local outlineFrame = Instance.new("Frame")
+outlineFrame.Parent = ToggleButton
+outlineFrame.Size = UDim2.new(1, 0, 0, 5)  -- Horizontal line at the top
+outlineFrame.Position = UDim2.new(0, 0, 0, 0)
+outlineFrame.BackgroundColor3 = Color3.fromRGB(0, 255, 0) -- Green outline
+outlineFrame.BorderSizePixel = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12) -- Rounded corners
+UICorner.Parent = ToggleButton
+
+-- Enable dragging of the button for mobile
+local isDragging = false
+local dragStart
+local startPos
+
+ToggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = true
+        dragStart = input.Position
+        startPos = ToggleButton.Position
+    end
+end)
+
+ToggleButton.InputChanged:Connect(function(input)
+    if isDragging and input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStart
+        ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = false
+    end
+end)
+
+-- Toggle functionality
+ToggleButton.MouseButton1Click:Connect(function()
+    ESPEnabled = not ESPEnabled
+    ToggleButton.Text = ESPEnabled and "ESP ON" or "ESP OFF"
+end)
+   end,
+})
+
+local Button = ESPTab:CreateButton({
+   Name = "HealthESP 2 ",
+   Callback = function()
+        local LocalPlayer = game.Players.LocalPlayer -- Reference to the local player
+
+-- Function to create ESP (Highlight, Name Display, Health Counter, and Health Bar)
+local function createPlayerESP(player)
+    local function setupCharacter(character)
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        local head = character:WaitForChild("Head", 10)
+        local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso") -- Support R6 and R15
+
+        if humanoid and head and torso then
+            -- Highlight the player in bright green
+            local highlight = Instance.new("Highlight")
+            highlight.Adornee = character
+            highlight.FillColor = Color3.fromRGB(0, 255, 0) -- Bright green
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- White outline
+            highlight.Parent = character
+
+            -- Create BillboardGui for name display
+            local nameGui = Instance.new("BillboardGui")
+            nameGui.Adornee = head
+            nameGui.Size = UDim2.new(4, 0, 1, 0)
+            nameGui.StudsOffset = Vector3.new(0, 2.5, 0) -- Position above the head
+            nameGui.AlwaysOnTop = true
+            nameGui.Parent = head
+
+            -- Add TextLabel for the name
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1, 0, 1, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name
+            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Bright white text
+            nameLabel.Font = Enum.Font.SourceSansBold
+            nameLabel.TextStrokeTransparency = 0
+            nameLabel.TextScaled = true
+            nameLabel.Parent = nameGui
+
+            -- Create BillboardGui for health counter and bar
+            local healthGui = Instance.new("BillboardGui")
+            healthGui.Adornee = torso
+            healthGui.Size = UDim2.new(4, 0, 1, 0)
+            healthGui.StudsOffset = Vector3.new(0, 3, 0) -- Position above the player
+            healthGui.AlwaysOnTop = true
+            healthGui.Parent = torso
+
+            -- Add TextLabel for health counter
+            local healthCounter = Instance.new("TextLabel")
+            healthCounter.Size = UDim2.new(1, 0, 0.5, 0)
+            healthCounter.Position = UDim2.new(0, 0, 0, 0)
+            healthCounter.BackgroundTransparency = 1
+            healthCounter.Text = "100" -- Default health
+            healthCounter.TextColor3 = Color3.fromRGB(0, 255, 0) -- Green for healthy players
+            healthCounter.Font = Enum.Font.SourceSansBold
+            healthCounter.TextStrokeTransparency = 0
+            healthCounter.TextScaled = true
+            healthCounter.Parent = healthGui
+
+            -- Add Frame for health bar
+            local healthBarBackground = Instance.new("Frame")
+            healthBarBackground.Size = UDim2.new(1, 0, 0.2, 0)
+            healthBarBackground.Position = UDim2.new(0, 0, 0.5, 0)
+            healthBarBackground.BackgroundColor3 = Color3.fromRGB(50, 50, 50) -- Grey background
+            healthBarBackground.BorderSizePixel = 0
+            healthBarBackground.Parent = healthGui
+
+            local healthBar = Instance.new("Frame")
+            healthBar.Size = UDim2.new(1, 0, 1, 0)
+            healthBar.Position = UDim2.new(0, 0, 0, 0)
+            healthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 0) -- Green bar
+            healthBar.BorderSizePixel = 0
+            healthBar.Parent = healthBarBackground
+
+            -- Update health counter and bar dynamically
+            local function updateHealth()
+                if humanoid then
+                    local health = humanoid.Health
+                    local maxHealth = humanoid.MaxHealth
+                    local healthPercentage = health / maxHealth
+
+                    -- Update health counter
+                    healthCounter.Text = math.floor(health) .. " / " .. math.floor(maxHealth)
+                    if healthPercentage > 0.7 then
+                        healthCounter.TextColor3 = Color3.fromRGB(0, 255, 0) -- Green
+                    elseif healthPercentage > 0.4 then
+                        healthCounter.TextColor3 = Color3.fromRGB(255, 255, 0) -- Yellow
+                    else
+                        healthCounter.TextColor3 = Color3.fromRGB(255, 0, 0) -- Red
+                    end
+
+                    -- Update health bar
+                    healthBar.Size = UDim2.new(healthPercentage, 0, 1, 0)
+                    if healthPercentage > 0.7 then
+                        healthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 0) -- Green
+                    elseif healthPercentage > 0.4 then
+                        healthBar.BackgroundColor3 = Color3.fromRGB(255, 255, 0) -- Yellow
+                    else
+                        healthBar.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Red
+                    end
+                end
+            end
+
+            -- Connect health updates
+            humanoid.HealthChanged:Connect(updateHealth)
+            updateHealth() -- Initial update
+        end
+    end
+
+    -- Handle the player's character
+    if player.Character then
+        setupCharacter(player.Character)
+    end
+
+    -- Connect to CharacterAdded for new characters
+    player.CharacterAdded:Connect(setupCharacter)
+end
+
+-- Apply ESP to all existing players
+for _, player in ipairs(game.Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        createPlayerESP(player)
+    end
+end
+
+-- Handle new players joining the game
+game.Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        createPlayerESP(player)
+    end
+end)
+   end,
+})
+
+local Button = ESPTab:CreateButton({
+   Name = "SimpleESP with Name , Health and Distance",
+   Callback = function()
+        local LocalPlayer = game.Players.LocalPlayer -- Reference to the local player
+
+-- Function to create ESP for a player
+local function createPlayerESP(player)
+    local function setupCharacter(character)
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        local head = character:WaitForChild("Head", 10)
+
+        if humanoid and head then
+            -- Highlight the player in bright white
+            local highlight = Instance.new("Highlight")
+            highlight.Adornee = character
+            highlight.FillColor = Color3.fromRGB(255, 255, 255) -- Bright white
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- Bright white outline
+            highlight.Parent = character
+
+            -- Create BillboardGui for name, health, and distance display
+            local infoGui = Instance.new("BillboardGui")
+            infoGui.Adornee = head
+            infoGui.Size = UDim2.new(8, 0, 2, 0) -- Bigger text size
+            infoGui.StudsOffset = Vector3.new(0, 3, 0) -- Position above the head
+            infoGui.AlwaysOnTop = true
+            infoGui.Parent = head
+
+            -- Add TextLabel for displaying name, health, and distance
+            local infoLabel = Instance.new("TextLabel")
+            infoLabel.Size = UDim2.new(1, 0, 1, 0)
+            infoLabel.BackgroundTransparency = 1
+            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Bright white text
+            infoLabel.Font = Enum.Font.SourceSansBold
+            infoLabel.TextStrokeTransparency = 0
+            infoLabel.TextScaled = false  -- Disable text scaling
+            infoLabel.TextSize = 20 -- Reduced text size
+            infoLabel.Parent = infoGui
+
+            -- Function to update the ESP text
+            local function updateESP()
+                if humanoid and character.PrimaryPart and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+                    local health = math.floor(humanoid.Health)
+                    local maxHealth = math.floor(humanoid.MaxHealth)
+                    local distance = math.floor((character.PrimaryPart.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude)
+                    infoLabel.Text = player.Name .. " | " .. health .. "/" .. maxHealth .. " | " .. distance .. " studs"
+                end
+            end
+
+            -- Connect health and position updates
+            humanoid.HealthChanged:Connect(updateESP)
+            game:GetService("RunService").RenderStepped:Connect(updateESP)
+            updateESP() -- Initial update
+        end
+    end
+
+    -- Handle the player's character
+    if player.Character then
+        setupCharacter(player.Character)
+    end
+
+    -- Connect to CharacterAdded for new characters
+    player.CharacterAdded:Connect(setupCharacter)
+end
+
+-- Apply ESP to all existing players
+for _, player in ipairs(game.Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        createPlayerESP(player)
+    end
+end
+
+-- Handle new players joining the game
+game.Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        createPlayerESP(player)
+    end
+end)
+   end,
+})
+
+local MiscTab = Window:CreateTab("Miscs⚜", nil)
+local Section = MiscTab:CreateSection("Miscs")
+
+local Button = MiscTab:CreateButton({
+   Name = "Right Click",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/DHBCommunity/DHBOfficialScript/main/RightClick"))()
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Mobile Keyboard",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Xxtan31/Ata/main/deltakeyboardcrack.txt", true))()
+   end,
+})
+ 
+ local Button = MiscTab:CreateButton({
+   Name = "L-Fly",
+   Callback = function()
+       loadstring(game:HttpGet("https://github.com/l0ckerV5/RobIox-Exploits/raw/refs/heads/main/Protected_2354134114061323.txt"))()
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "UnderGround Antilock",
+   Callback = function()
+         getgenv().Underground = true 
+getgenv().UndergroundAmount = 825
+
+game:GetService("RunService").heartbeat:Connect(function()
+    if getgenv().Underground ~= false then 
+    local vel = game.Players.LocalPlayer.Character.HumanoidRootPart.Velocity
+    game.Players.LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0,-         getgenv().UndergroundAmount,0) 
+    game:GetService("RunService").RenderStepped:Wait()
+    game.Players.LocalPlayer.Character.HumanoidRootPart.Velocity = vel
+    end 
+end)
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "KirbsWare AntiLock",
+   Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/wenny69420/KirbswareScripts/main/MobileV3'))()
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Freefall AntiLock",
+   Callback = function()
+        local Plr = game.Players.LocalPlayer
+
+Plr.Character:WaitForChild("Humanoid").StateChanged:Connect(function(old,new)
+    if new == Enum.HumanoidStateType.Freefall == true then
+        wait(0.27)
+        game.Players.LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, -15, 0)
+    end
+end)
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Macro",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/khen791/script-khen/refs/heads/main/MacroMobile.txt", true))();
+   end,
+})
+local Button = MiscTab:CreateButton({
+   Name = "Stretch Res",
+   Callback = function() getgenv().Resolution = {
+    [".gg/scripters"] = 0.8
+}
+
+local Camera = workspace.CurrentCamera
+if getgenv().gg_scripters == nil then
+    game:GetService("RunService").RenderStepped:Connect(
+        function()
+            Camera.CFrame = Camera.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, getgenv().Resolution[".gg/scripters"], 0, 0, 0, 1)
+        end
+    )
+end
+getgenv().gg_scripters = "Aori0001"
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "FPS Booster",
+   Callback = function()
+        for i,v in next, (workspace:GetDescendants()) do
+ if v:IsA("Part") then v.Material = Enum.Material.SmoothPlastic
+ end
+ end
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Macro Shift",
+   Callback = function()
+       loadstring(game:HttpGet('https://raw.githubusercontent.com/Unknownproootest/Permanent-Shift-Lock-Alt/alt/PermShiftlockAlt'))()
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Aimview (VF GAMES ONLY)",
+   Callback = function()
+       loadstring(game:HttpGet("https://raw.githubusercontent.com/khen791/script-khen/refs/heads/main/aimview.txt", true))();
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Headless &  Korblox",
+   Callback = function()
+        -- korblox no support R6
+
+getgenv().Setting = {
+     ["Body"] = {
+          ["Korblox"] = true, -- false or true 
+          ["Headless"] = true, -- false or true 
+     },
+}
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/khen791/script-khen/refs/heads/main/KorbloxAndHeadless.txt", true))()
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Motion Blur",
+   Callback = function()
+       local camera = workspace.CurrentCamera
+local blurAmount = 15 --Select your amount--
+local blurAmplifier = 5 --If you know yk--
+local lastVector = camera.CFrame.LookVector
+
+local motionBlur = Instance.new("BlurEffect", camera)
+
+local runService = game:GetService("RunService")
+
+workspace.Changed:Connect(function(property)
+ if property == "CurrentCamera" then
+  print("Changed")
+  local camera = workspace.CurrentCamera
+  if motionBlur and motionBlur.Parent then
+   motionBlur.Parent = camera
+  else
+   motionBlur = Instance.new("BlurEffect", camera)
+  end
+ end
+end)
+
+runService.Heartbeat:Connect(function()
+ if not motionBlur or motionBlur.Parent == nil then
+  motionBlur = Instance.new("BlurEffect", camera)
+ end
+ 
+ local magnitude = (camera.CFrame.LookVector - lastVector).magnitude
+ motionBlur.Size = math.abs(magnitude)*blurAmount*blurAmplifier/2
+ lastVector = camera.CFrame.LookVector
+end)
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Trash Talk",
+   Callback = function()
+       loadstring(game:HttpGet("https://raw.githubusercontent.com/khen791/script-khen/refs/heads/main/TrashTalk.txt", true))();
+   end,
+})
+
+local Button = MiscTab:CreateButton({
+   Name = "Resolver",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/FeliciaXxxTop/FuckRoblox/main/ResolverV1.lua"))()
+   end,
+})
+
+local VaultTab = Window:CreateTab("Vault🗳", nil) -- Title, Image
+local Section = VaultTab:CreateSection("Script Vault")
+
+local Button = VaultTab:CreateButton({
+   Name = "Azure V4",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Sigma-3131/Scripts/main/Azure%20Mobile"))()
+   end,
+})
+
+local Button = VaultTab:CreateButton({
+   Name = "FrostByte",
+   Callback = function()
+         loadstring(game:HttpGet("https://raw.githubusercontent.com/Totocoems/Frostbyte-leaked/main/Frostbyte%20leaked"))()
+   end,
+})
+
+local Button = VaultTab:CreateButton({
+   Name = "Alysum Mobile",
+   Callback = function()
+        getgenv().AlysumMobile = {
+    enabled = true, -- // Global Switch
+    ui = true, -- // Enable UI
+    button_position = {104,4}, -- // Button Position
+    legitness = "Super Legit", -- // Super Legit (Closest Point), Semi Legit (Closest Part), Normal (Torso), Blatant (Head)
+    prediction = "1", -- // Prediction version (1,2,3)
+    notif = true, -- // Notifications
+    highlight = true, -- // Highlight Target
+    line = false, -- // Line to target
+    checks = {true, true, false}, -- // Visible, Knocked, Friend
+    assist = {false, 0.058}, -- // Enabled, Strength
+    fov = {true,50} -- // Visible, Size
+}
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/laagginq/Alysum/main/mobile"))()
+   end,
+})
+
+local Button = VaultTab:CreateButton({
+   Name = "Awaken  ",
+   Callback = function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/ZS0PVXFu"))();
+   end,
+})
+
+local Button = VaultTab:CreateButton({
+   Name = "Lol.Xd",
+   Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/yoitsyamans/takedatrisklillll/refs/heads/main/lol.xd"))()
+   end,
+})
